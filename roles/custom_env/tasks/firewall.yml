@@ -1,8 +1,27 @@
 ---
-# Открываем: текущий SSH-порт (та же переменная current_ssh_port, что
-# использует ssh-хардненинг), плюс всё, что реально слушает наружу
-# (эвристика для VPN-сервисов типа Amnezia), плюс extra_allowed_ports
-# из secrets.yml как явный, надёжный вариант.
+# Самодостаточный файл — не зависит от того, из какого плея импортирован.
+#
+# КРИТИЧНО: перед переключением sshd на новый порт нужно открыть В ФАЙРВОЛЕ
+# И старый порт (на случай отката), И новый целевой порт (secret_ssh_port) —
+# иначе ssh_hardening перевесит sshd на новый порт, а файрвол его не пустит,
+# и рестарт sshd подвиснет намертво (именно так и случилось в проде).
+#
+# Форвардинг пакетов (нужен для VPN) настраивается НЕ здесь, а через
+# настоящие переменные роли devsec.hardening.os_hardening — sysctl_overwrite
+# и ufw_default_forward_policy в group_vars/servers.yml. Роль применяет
+# ufw-дефолты ПОСЛЕ этого файла и перезаписала бы любую ручную правку
+# /etc/default/ufw, поэтому здесь такой правки больше нет.
+
+- name: Определить набор SSH-портов, которые точно должны остаться доступны (текущий + целевой)
+  ansible.builtin.set_fact:
+    ssh_ports_needed: >-
+      {{
+        [
+          (current_ssh_port | default(ansible_port) | default(22)) | int,
+          (secret_ssh_port | default(ansible_port) | default(22)) | int
+        ] | unique
+      }}
+  when: "'servers' in group_names"
 
 - name: Определить порты, которые сервис реально слушает наружу
   ansible.builtin.shell: |
@@ -17,18 +36,30 @@
   register: detected_listeners
   when: "'servers' in group_names"
 
-- name: Показать, что было обнаружено (проверьте глазами!)
+- name: Показать, что было обнаружено
   ansible.builtin.debug:
     msg: "{{ detected_listeners.stdout_lines }}"
   when: "'servers' in group_names"
 
-- name: Собрать итоговый список портов для открытия
+- name: Превратить обнаруженные строки "proto port" в список {port, proto}
+  ansible.builtin.set_fact:
+    detected_ports_parsed: "{{ detected_ports_parsed | default([]) + [{'proto': item.split(' ')[0], 'port': item.split(' ')[1] | int}] }}"
+  loop: "{{ detected_listeners.stdout_lines | default([]) }}"
+  when: "'servers' in group_names"
+
+- name: Собрать итоговый список портов (SSH текущий+целевой + автообнаруженные + explicit из secrets.yml)
   ansible.builtin.set_fact:
     ports_to_open: >-
       {{
-        [{'port': current_ssh_port | int, 'proto': 'tcp'}]
+        (ssh_ports_needed | map('community.general.dict_kv', 'port') | map('combine', {'proto': 'tcp'}) | list)
+        + (detected_ports_parsed | default([]))
         + (extra_allowed_ports | default([]))
       }}
+  when: "'servers' in group_names"
+
+- name: Показать итоговый список портов, которые реально откроются
+  ansible.builtin.debug:
+    msg: "{{ ports_to_open }}"
   when: "'servers' in group_names"
 
 # --- Debian/Ubuntu: ufw ---
@@ -57,15 +88,7 @@
     - ansible_os_family == 'Debian'
     - "'servers' in group_names"
     - close_old_ssh_port | default(false) | bool
-    - current_ssh_port | int != 22
-
-- name: "[ufw] Разрешить форвардинг (нужно для VPN на этом сервере)"
-  ansible.builtin.lineinfile:
-    path: /etc/default/ufw
-    regexp: '^DEFAULT_FORWARD_POLICY='
-    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
-  when: ansible_os_family == 'Debian' and 'servers' in group_names
-  notify: reload ufw
+    - (secret_ssh_port | default(22) | int) != 22
 
 - name: "[ufw] Включить"
   community.general.ufw:
@@ -87,8 +110,7 @@
   ansible.builtin.debug:
     msg: >-
       Если Amnezia установлена через Docker — Docker сам управляет iptables
-      для проброшенных портов и иногда конфликтует с ufw/firewalld
-      (трафик до контейнера может резаться, даже если порт "открыт").
-      После этого прогона ОБЯЗАТЕЛЬНО проверьте подключение к VPN с телефона
-      или другого устройства, не полагаясь только на "ufw status".
+      для проброшенных портов и иногда конфликтует с ufw/firewalld.
+      ОБЯЗАТЕЛЬНО проверьте подключение к VPN с телефона после этого
+      прогона, не полагаясь только на "ufw status".
   when: "'servers' in group_names"

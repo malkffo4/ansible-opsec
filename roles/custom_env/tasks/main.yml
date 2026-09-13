@@ -4,6 +4,7 @@
     sudo_group: "{{ 'sudo' if ansible_os_family == 'Debian' else 'wheel' }}"
     ssh_service_name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
 
+- import_tasks: updates.yml
 - import_tasks: chrony.yml
 - import_tasks: dns.yml
 

@@ -1,0 +1,77 @@
+---
+# Обновляем систему ДО харденинга (чтобы не хардненить дырявые пакеты),
+# и настраиваем автоматические security-обновления на будущее — сервер
+# маленький и не рассчитан на то, что вы будете туда заходить руками
+# каждую неделю ради apt upgrade.
+#
+# Осознанно НЕ делаем автоматический reboot после обновления ядра —
+# на VPN-сервере это может неожиданно оборвать текущие VPN-сессии.
+# Если после этого таска будет msg "требуется перезагрузка" — сделайте
+# её сами в спокойный момент: sudo reboot.
+
+- name: "[Debian/Ubuntu] Обновить apt-кэш и пакеты"
+  block:
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Полное обновление пакетов
+      ansible.builtin.apt:
+        upgrade: safe
+        autoremove: yes
+
+    - name: Установить unattended-upgrades
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        state: present
+
+    - name: Включить автоматические security-обновления
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        mode: '0644'
+
+    - name: Проверить, требуется ли перезагрузка
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+
+    - name: Предупредить, если нужна перезагрузка
+      ansible.builtin.debug:
+        msg: >-
+          Ядро/системные библиотеки обновились, серверу нужна перезагрузка
+          (sudo reboot). Автоматически НЕ перезагружаем, чтобы не оборвать
+          VPN-сессии прямо сейчас — сделайте это сами в удобный момент.
+      when: reboot_required_file.stat.exists
+  when: ansible_os_family == 'Debian'
+
+- name: "[RedHat/Fedora] Обновить пакеты"
+  block:
+    - name: dnf upgrade
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+
+    - name: Установить dnf-automatic
+      ansible.builtin.dnf:
+        name: dnf-automatic
+        state: present
+
+    - name: Включить автоматические (только загрузка+уведомление) обновления
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/automatic.conf
+        regexp: '^apply_updates ='
+        line: 'apply_updates = no'
+        # no — на десктопе/ноутбуке лучше не ставить обновления без вас;
+        # для сервера можно сменить на yes, если хотите полный автопилот.
+
+    - name: Включить и запустить таймер dnf-automatic
+      ansible.builtin.systemd:
+        name: dnf-automatic.timer
+        enabled: true
+        state: started
+  when: ansible_os_family == 'RedHat'

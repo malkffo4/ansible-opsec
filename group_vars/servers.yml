@@ -6,10 +6,23 @@ os_fapolicyd_enabled: true        # На сервере можно остави�
 os_fapolicyd_installed: true         # Запрет запуска левых бинарников, если сервер скомпрометируют
 
 # Настройка сети
-os_ipv4_forward: true                # Если VPS используется как VPN/Pivot
+# ВАЖНО: `os_ipv4_forward` НЕ является настоящей переменной роли
+# devsec.hardening.os_hardening — она ни на что не влияла и раньше
+# давала ложное чувство безопасности, пока форвардинг реально не
+# отключался и VPN не переставал работать. Правильные переменные — ниже.
 sysctl_overwrite:
+  # Форвардинг пакетов — обязателен для VPN-сервера, иначе Amnezia не
+  # сможет маршрутизировать трафик клиентов. os_hardening по умолчанию
+  # выключает его (net.ipv4.ip_forward: 0), это и роняло VPN.
+  net.ipv4.ip_forward: 1
+  net.ipv6.conf.all.forwarding: 1
   # Защита от SYN-флуда и спуфинга
   net.ipv4.tcp_syncookies: 1
   net.ipv4.conf.all.rp_filter: 1
   # Дропаем ICMP, чтобы сервер не светился в массовых сканах интернета
   net.ipv4.icmp_echo_ignore_all: 1
+
+# ufw по умолчанию (devsec-роль) дропает и FORWARD-цепочку — тоже ломает
+# VPN-маршрутизацию. Это настоящая переменная роли (не самодеятельность
+# через lineinfile, которую роль потом перезаписывает своим шаблоном).
+ufw_default_forward_policy: ACCEPT

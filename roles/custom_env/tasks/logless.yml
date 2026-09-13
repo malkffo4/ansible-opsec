@@ -11,13 +11,21 @@
     - { path: '/var/log/laurel', opts: 'rw,nosuid,nodev,noexec,mode=0750,owner=_laurel,size=50M' }
     - { path: '/var/log', opts: 'size=50M,mode=0755' }
 
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Configure journald storage type
-  ansible.builtin.copy:
-    dest: /etc/systemd/journald.conf.d/99-storage.conf
-    content: |
-      [Journal]
-      Storage={{ 'volatile' if os_security_logless_enable else 'persistent' }}
-    mode: '0644'
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-custom.conf
+    owner: root
+    group: root
+    mode: "0644"
   notify: Restart journald
 
 - name: Configure Bash History globally

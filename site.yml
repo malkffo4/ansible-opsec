@@ -16,15 +16,35 @@
   hosts: servers
   become: yes
   gather_facts: yes
+  vars_files:
+    - vars/secrets.yml
+  pre_tasks:
+    - name: Проверить, что критичные переменные из vars/secrets.yml реально загружены
+      ansible.builtin.assert:
+        that:
+          - secret_ssh_port is defined
+          - secret_ssh_port | int != 22
+          - extra_allowed_ports is defined
+        fail_msg: >-
+          vars/secrets.yml не найден или неполный. Скопируйте
+          vars/secrets.yml.example в vars/secrets.yml и заполните.
+          (Раньше это можно было забыть передать через -e и получить
+          тихий откат на дефолты — теперь файл подключается сам и без
+          него плейбук не запустится.)
   tasks:
     - import_tasks: roles/custom_env/tasks/bootstrap_admin.yml
 
 - name: "1. Харденинг SSH и ОС (с ручным подтверждением перед отключением root)"
   hosts: servers
   become: yes
+  vars_files:
+    - vars/secrets.yml
   vars:
     current_ssh_port: "{{ ansible_port | default(22) }}"
   pre_tasks:
+    - name: Обновить систему до харденинга
+      import_tasks: roles/custom_env/tasks/updates.yml
+
     - name: Открыть новый SSH-порт и VPN-порты в файрволе ДО переключения sshd
       import_tasks: roles/custom_env/tasks/firewall.yml
 
@@ -58,6 +78,22 @@
       ansible.builtin.include_role:
         name: devsec.hardening.ssh_hardening
 
+    - name: Принудительно перезапустить sshd
+      # НЕ полагаемся на notify/handler: если sshd_config совпал с уже
+      # записанным в прошлом (упавшем) прогоне, Ansible считает задачу
+      # "ok", а не "changed" — и handler не срабатывает, хотя реального
+      # рестарта с новым конфигом так и не было. Перезапускаем явно.
+      ansible.builtin.systemd:
+        name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+        state: restarted
+
+    - name: Убедиться, что sshd реально слушает новый порт, прежде чем переключаться на него
+      ansible.builtin.wait_for:
+        port: "{{ secret_ssh_port }}"
+        host: 127.0.0.1
+        timeout: 15
+        state: started
+
     - name: Переключить ansible на нового юзера и новый порт
       ansible.builtin.set_fact:
         ansible_user: "{{ new_user }}"
@@ -70,6 +106,8 @@
 - name: "2. Развертывание среды (DNS-over-TLS, chrony, zram; серверные вещи вроде fail2ban отфильтрованы внутри роли по group_names)"
   hosts: all
   become: yes
+  vars_files:
+    - vars/secrets.yml
   roles:
     - custom_env
 

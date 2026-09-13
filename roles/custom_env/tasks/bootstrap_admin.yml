@@ -69,6 +69,16 @@
       ansible.builtin.set_fact:
         gen_root_console_pass: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=24') }}"
 
+    - name: Захэшировать пароль НА СЕРВЕРЕ через openssl (без passlib на control-node)
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - passwd
+          - "-6"
+          - "{{ gen_root_console_pass }}"
+      register: root_pass_hash
+      changed_when: false
+
     - name: Применить пароль к root
       # Это НЕ включает вход по паролю через SSH (он будет запрещён
       # отдельно ролью ssh_hardening) — пароль нужен только если придётся
@@ -76,7 +86,7 @@
       # и т.п.), когда SSH недоступен в принципе.
       ansible.builtin.user:
         name: root
-        password: "{{ gen_root_console_pass | password_hash('sha512') }}"
+        password: "{{ root_pass_hash.stdout }}"
 
     - name: Сохранить пароль локально (в gitignore, не коммитится)
       become: false

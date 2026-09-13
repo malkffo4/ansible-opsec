@@ -1,0 +1,28 @@
+---
+new_user: "user"
+
+# --- SSH (devsec.hardening.ssh_hardening) ---
+# Реальные имена переменных роли — см. roles/ssh_hardening/defaults/main.yml
+# в devsec.hardening. Раньше здесь были опечатки (sshd_port, sshd_allow_users,
+# ssh_max_auth_tries) — роль их не видела и тихо использовала свои дефолты.
+ssh_server_ports: ["{{ secret_ssh_port | default(22) }}"]
+ssh_max_auth_retries: 5
+ssh_allow_users: "{{ new_user }}"
+ssh_allow_groups: "wheel sudo {{ new_user }}"
+# root может логиниться по SSH ТОЛЬКО после того, как bootstrap_admin.yml
+# (Play "0.") успешно перенёс ключ на new_user — это гарантируется порядком
+# плеёв в site.yml, а не этой переменной. Держим "no" явно, а не по дефолту.
+ssh_permit_root_login: "no"
+ssh_server_password_login: false
+
+ansible_python_interpreter: /usr/bin/python3
+
+# NB: NOPASSWD для sudo-группы настраивается напрямую в
+# roles/custom_env/tasks/bootstrap_admin.yml (через /etc/sudoers.d/),
+# а не через devsec-роль — у неё нет такой переменной/логики.
+
+os_firewall_enable: true
+
+# anti-forensics
+os_security_kernel_enable_core_dump: false # Хосту дампы памяти не нужны (чтобы крэши утилит не сохраняли память на диск)
+os_security_logless_enable: false

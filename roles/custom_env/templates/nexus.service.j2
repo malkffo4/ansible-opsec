@@ -1,0 +1,28 @@
+[Unit]
+Description=Nexus E2EE Security Sentinel
+After=network.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+
+# Разрешаем запись в папку с конфигом и базой
+ReadWritePaths=/etc/nexus
+
+# Это создаст /var/lib/nexus с правами пользователя nexus
+StateDirectory=nexus 
+
+# Создаем директорию в /run при старте
+RuntimeDirectory=nexus
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/bin/nexus-agent --config /etc/nexus/config.yaml --rules /etc/nexus/rules.yaml
+Restart=always
+RestartSec=5s
+
+# Харденинг
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+---
+- name: Manage log mounts (RAM vs Disk)
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: tmpfs
+    fstype: tmpfs
+    opts: "{{ item.opts }}"
+    state: "{{ 'mounted' if os_security_logless_enable else 'absent' }}"
+  loop:
+    - { path: '/var/log/audit', opts: 'rw,nosuid,nodev,noexec,mode=0750,size=50M' }
+    - { path: '/var/log/laurel', opts: 'rw,nosuid,nodev,noexec,mode=0750,owner=_laurel,size=50M' }
+    - { path: '/var/log', opts: 'size=50M,mode=0755' }
+
+- name: Configure journald storage type
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/99-storage.conf
+    content: |
+      [Journal]
+      Storage={{ 'volatile' if os_security_logless_enable else 'persistent' }}
+    mode: '0644'
+  notify: Restart journald
+
+- name: Configure Bash History globally
+  ansible.builtin.blockinfile:
+    path: /etc/bash.bashrc
+    create: yes
+    block: |
+      export HISTSIZE=1024
+      export HISTFILESIZE=1024
+      export HISTFILE={{ '/dev/null' if os_security_logless_enable else '~/.bash_history' }}
+      export HISTCONTROL=ignoreboth
+      shopt -s histappend
+
+- name: Ensure Bash History for specific user
+  ansible.builtin.lineinfile:
+    path: "/home/{{ new_user }}/.bashrc"
+    regexp: "^export HISTFILE="
+    line: "export HISTFILE={{ '/dev/null' if os_security_logless_enable else '~/.bash_history' }}"
+    owner: "{{ new_user }}"
+    mode: '0644'
+
+- name: System localization and time
+  block:
+    - name: Set timezone to UTC
+      ansible.builtin.timezone:
+        name: UTC
+    - name: Set locale to en_US.UTF-8
+      ansible.builtin.command: localectl set-locale LANG=en_US.UTF-8
+      changed_when: false

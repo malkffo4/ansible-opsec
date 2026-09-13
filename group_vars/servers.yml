@@ -1,0 +1,15 @@
+---
+os_security_users_allow: ["user"]
+os_security_proc_hidepid: 2        # Изоляция процессов
+hidepid_option: "2"
+os_fapolicyd_enabled: true        # На сервере можно оставить
+os_fapolicyd_installed: true         # Запрет запуска левых бинарников, если сервер скомпрометируют
+
+# Настройка сети
+os_ipv4_forward: true                # Если VPS используется как VPN/Pivot
+sysctl_overwrite:
+  # Защита от SYN-флуда и спуфинга
+  net.ipv4.tcp_syncookies: 1
+  net.ipv4.conf.all.rp_filter: 1
+  # Дропаем ICMP, чтобы сервер не светился в массовых сканах интернета
+  net.ipv4.icmp_echo_ignore_all: 1

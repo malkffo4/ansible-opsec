@@ -1,0 +1,24 @@
+---
+- name: Enable Flathub remote if disabled
+  ansible.builtin.command: flatpak remote-modify --enable flathub
+  register: remote_enable
+  failed_when: false
+  changed_when: "'enabled' in remote_enable.stdout"
+
+- name: Подключение репозитория Flathub
+  community.general.flatpak_remote:
+    name: flathub
+    state: present
+    flatpakrepo_url: https://dl.flathub.org/repo/flathub.flatpakrepo
+    method: system
+
+- name: Установка Flatseal
+  ansible.builtin.command: flatpak install -y flathub com.github.tchx84.Flatseal
+  register: flatpak_result
+  changed_when: "'Installing' in flatpak_result.stdout"
+
+- name: Глобальное отключение X11 в Flatpak (Защита от кейлоггеров)
+  ansible.builtin.command: flatpak override --system --nosocket=x11
+  # Идемпотентный подход: проверяем, применено ли уже правило
+  register: flatpak_x11
+  changed_when: flatpak_x11.rc == 0

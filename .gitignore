@@ -1,0 +1,15 @@
+# Локальные инвентари и переменные
+inventory.local.yml
+inventory.local.ini
+vars/secrets.yml
+vars/creds_*.txt
+
+# Ключи и временные файлы
+*.key
+*.pub
+*.pem
+.vault_pass
+*.retry
+
+# Реальный инвентарь с IP сервера — не публикуется
+inventory.yml

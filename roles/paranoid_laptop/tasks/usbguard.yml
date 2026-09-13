@@ -1,0 +1,40 @@
+- name: Install USBGuard
+  ansible.builtin.package:
+    name: usbguard
+    state: present
+
+- name: Check if USBGuard rules exist
+  ansible.builtin.stat:
+    path: /etc/usbguard/rules.conf
+  register: usbguard_rules_stat
+
+- name: Generate initial USBGuard policy (Whitelist current devices)
+  # Используем -f для принудительной генерации, если файл пустой
+  ansible.builtin.shell: |
+    set -o pipefail
+    usbguard generate-policy > /etc/usbguard/rules.conf
+  args:
+    executable: /bin/bash
+  # Генерируем только если файла нет или он весит 0 байт
+  when: not usbguard_rules_stat.stat.exists or usbguard_rules_stat.stat.size == 0
+  notify: restart usbguard
+
+- name: Ensure correct permissions for USBGuard rules
+  ansible.builtin.file:
+    path: /etc/usbguard/rules.conf
+    owner: root
+    group: root
+    mode: '0600'
+  notify: restart usbguard
+
+- name: Reset failed state and enable USBGuard
+  block:
+    - name: Force systemd to reset failed state
+      ansible.builtin.command: systemctl reset-failed usbguard
+      failed_when: false # Игнорируем ошибку, если сервис не был в состоянии failed
+
+    - name: Enable and start USBGuard
+      ansible.builtin.service:
+        name: usbguard
+        state: started
+        enabled: yes

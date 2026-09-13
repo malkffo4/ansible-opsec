@@ -1,0 +1,35 @@
+# Детект попытки пересогласования ключей
+- rule: Unauthorized Bluetooth Pairing Attempt
+  desc: Detects modifications to bluetooth link keys directory, indicating a rogue pairing request.
+  condition: >
+    evt.type in (open, openat, openat2) and
+    evt.is_open_write=true and
+    fd.name startswith "/var/lib/bluetooth/" and
+    not proc.name in (bluetoothd)
+  output: "Rogue Bluetooth pairing key modification detected! (user=%user.name command=%proc.cmdline file=%fd.name)"
+  priority: CRITICAL
+  tags: [bluetooth, network, mitm]
+
+# Детект попытки дампить память (Anti-Forensics)
+- rule: Detect Memory Dumping
+  desc: Process attempted to access mem/kmem
+  condition: fd.name in (/dev/mem, /dev/kmem, /dev/port) and proc.name != "Xorg"
+  output: "Memory dump attempt detected (user=%user.name comm=%proc.cmdline)"
+  priority: CRITICAL
+
+# Детект вставки неизвестных USB (для сценария 2)
+- rule: Unauthorized USB Device
+  desc: New USB device plugged in
+  condition: evt.type = open and fd.name startswith "/dev/bus/usb/" and not proc.name in (usbguard, systemd-udevd)
+  output: "New USB device detected! (user=%user.name comm=%proc.cmdline)"
+  priority: WARNING
+
+- rule: Shell Born from Unlikely Parent
+  desc: Обнаружение шелла, запущенного не из графического терминала или системного менеджера
+  condition: >
+    spawned_process and
+    shell_binaries and
+    not proc.pname in (gnome-terminal, alacritty, xterm, systemd, konsole)
+  output: >
+    Unexpected shell spawned (user=%user.name command=%proc.cmdline parent=%proc.pname auid=%user.loginuid)
+  priority: WARNING

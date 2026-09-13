@@ -1,0 +1,20 @@
+---
+- name: Configure ZRAM (Debian/Ubuntu)
+  block:
+    - name: Install zram-tools
+      ansible.builtin.package:
+        name: zram-tools
+        state: present
+
+    - name: Configure ZRAM for 1GB RAM survival
+      ansible.builtin.lineinfile:
+        path: /etc/default/zramswap
+        regexp: "^ALLOCATION="
+        line: "ALLOCATION=1024"
+      notify: Restart zramswap
+  when: ansible_os_family == 'Debian'
+
+- name: Skip legacy zram-tools on RedHat
+  ansible.builtin.debug:
+    msg: "ZRAM on RedHat systems is managed by zram-generator or enabled by default. Skipping."
+  when: ansible_os_family == 'RedHat'

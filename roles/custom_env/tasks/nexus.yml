@@ -1,0 +1,64 @@
+---
+- name: Create Nexus group
+  ansible.builtin.group:
+    name: nexus
+    system: yes
+
+- name: Create Nexus user
+  ansible.builtin.user:
+    name: nexus
+    group: nexus
+    system: yes
+    shell: /sbin/nologin
+
+- name: Ensure config directory exists
+  ansible.builtin.file:
+    path: /etc/nexus
+    state: directory
+    owner: nexus
+    group: nexus
+    mode: '0750'
+
+# - name: Ensure Nexus database file exists with correct permissions
+#   ansible.builtin.file:
+#     path: /etc/nexus/nexus.db
+#     state: touch
+#     owner: nexus
+#     group: nexus
+#     mode: '0600'
+
+- name: Copy nexus-agent binary
+  ansible.builtin.copy:
+    src: ~/code/source_codes/my_projects/nexus/bin/nexus-agent
+    dest: /usr/local/bin/nexus-agent
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy Nexus config
+  ansible.builtin.template:
+    src: nexus_config.yaml.j2
+    dest: /etc/nexus/config.yaml
+    owner: nexus
+    group: nexus
+    mode: '0600'
+
+- name: Deploy Nexus systemd service
+  ansible.builtin.template:
+    src: nexus.service.j2
+    dest: /etc/systemd/system/nexus.service
+  notify: restart nexus
+
+- name: (Nexus) Ensure runtime directory exists (Fix Socket Error)
+  ansible.builtin.file:
+    path: /run/nexus
+    state: directory
+    owner: nexus
+    group: nexus
+    mode: '0755'
+
+- name: Start Nexus Agent
+  ansible.builtin.systemd:
+    name: nexus
+    enabled: yes
+    state: started

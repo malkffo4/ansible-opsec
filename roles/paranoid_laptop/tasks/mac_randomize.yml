@@ -1,0 +1,33 @@
+---
+- name: Hardening NetworkManager (MAC Randomization)
+  block:
+    - name: Ensure NetworkManager conf.d directory exists
+      ansible.builtin.file:
+        path: /etc/NetworkManager/conf.d
+        state: directory
+        mode: '0755'
+    # Рандомизация MAC при поиске сетей
+    # Рандомизация MAC при подключении (каждый раз новый для каждой сети)
+    - name: Enable MAC Address Randomization for Wi-Fi
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/99-mac-randomize.conf
+        content: |
+          [device]
+          wifi.scan-rand-mac-address=yes
+          [connection]
+          wifi.cloned-mac-address=random
+          ethernet.cloned-mac-address=random
+        mode: '0644'
+      notify: Reload NetworkManager
+
+# - name: Download StevenBlack blocklist (Ad/Malware blocking)
+#       ansible.builtin.get_url:
+#         url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+#         dest: /etc/hosts.blocklist
+#         mode: '0644'
+      
+#     - name: Merge blocklist with /etc/hosts
+#       ansible.builtin.shell: |
+#         cat /etc/hosts.blocklist >> /etc/hosts
+      # Важно: нужно проверять, не добавляли ли мы уже этот список, чтобы файл не рос бесконечно
+      # В идеале использовать модуль blockinfile, но для 100k+ строк shell работает быстрее.

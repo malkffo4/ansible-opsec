@@ -1,0 +1,36 @@
+---
+- name: Install core security tools
+  ansible.builtin.package:
+    name: "{{ 'auditd' if ansible_os_family == 'Debian' else 'audit' }}"
+    state: present
+
+- name: Install additional security helpers (Debian)
+  ansible.builtin.package:
+    name: ['libpam-tmpdir', 'libpam-pwquality', 'debsums']
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Ensure audit directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0750'
+    owner: root
+    group: root
+  loop:
+    - /etc/audit/rules.d
+    - /etc/systemd/journald.conf.d
+
+- name: Download Neo23x0 Auditd rules (Best Practice)
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/Neo23x0/auditd/master/audit.rules
+    dest: /etc/audit/rules.d/audit.rules
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart auditd
+
+- name: Clean up legacy audit rules
+  ansible.builtin.file:
+    path: /etc/audit/rules.d/audit.rules.prev
+    state: absent

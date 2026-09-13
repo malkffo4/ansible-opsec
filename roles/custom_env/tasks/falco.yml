@@ -1,0 +1,99 @@
+---
+- name: Set Falcosidekick version
+  ansible.builtin.set_fact:
+    sidekick_version: "2.28.0"
+
+# ========================================================
+# УСТАНОВКА FALCO (DEBIAN / UBUNTU)
+# ========================================================
+- name: Setup Falco for Debian
+  when: ansible_os_family == 'Debian'
+  block:
+    - name: Download and dearmor Falco GPG key (Fix SSL & Permissions)
+      ansible.builtin.shell: |
+        curl -fsSL https://falco.org/repo/falcosecurity-packages.asc | gpg --dearmor -o /etc/apt/keyrings/falco.gpg
+        chmod 644 /etc/apt/keyrings/falco.gpg
+      args:
+        creates: /etc/apt/keyrings/falco.gpg
+
+    - name: Add Falco apt repository (Debian)
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/falco.gpg] https://download.falco.org/packages/deb stable main"
+        state: present
+        filename: falco
+
+    - name: Install Falco package (Debian)
+      ansible.builtin.apt:
+        name: falco
+        state: present
+        update_cache: yes
+
+# ========================================================
+# УСТАНОВКА FALCO (REDHAT / FEDORA)
+# ========================================================
+- name: Setup Falco for RedHat
+  when: ansible_os_family == 'RedHat'
+  block:
+    - name: Add Falco YUM repository
+      ansible.builtin.yum_repository:
+        name: falco
+        description: Falco repository
+        baseurl: https://download.falco.org/packages/rpm
+        gpgcheck: yes
+        gpgkey: https://falco.org/repo/falcosecurity-packages.asc
+        enabled: yes
+
+    - name: Install Falco package (RedHat)
+      ansible.builtin.dnf:
+        name: [falco, kernel-devel]
+        state: present
+
+# ========================================================
+# КОНФИГУРАЦИЯ (ОБЩАЯ)
+# ========================================================
+
+- name: Falco Rule
+  ansible.builtin.template:
+    src: falco_rules.local.yaml.j2
+    dest: /etc/falco/falco_rules.local.yaml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart falco service
+  
+
+- name: Configure Falco Output (Link to Sidekick)
+  ansible.builtin.blockinfile:
+    path: /etc/falco/falco.yaml
+    marker: "# {mark} ANSIBLE MANAGED OUTPUT"
+    block: |
+      json_output: true
+      http_output:
+        enabled: true
+        url: "http://localhost:2801/"
+
+- name: Install Falco Driver (Robust way)
+  ansible.builtin.shell: |
+    # Ищем бинарник по всем возможным местам
+    for cmd in /usr/bin/falcoctl /usr/sbin/falcoctl /usr/bin/falco-driver-loader /usr/sbin/falco-driver-loader; do
+      if [ -x "$cmd" ]; then
+        if [[ "$cmd" == *"falcoctl"* ]]; then
+          "$cmd" driver install
+          exit 0
+        else
+          "$cmd"
+          exit 0
+        fi
+      fi
+    done
+    echo "Falco driver tools not found" && exit 1
+  changed_when: false
+  register: driver_result
+
+- name: Restart and Enable Services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: true
+    daemon_reload: yes
+  loop: [falco]

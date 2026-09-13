@@ -1,0 +1,25 @@
+---
+# ВАЖНО: ansible_port ниже должен ВСЕГДА совпадать с портом,
+# на котором sshd реально слушает прямо сейчас.
+#
+# Сейчас (до первого хардненинга): порт 22, вход root+пароль+ключ.
+# После успешного прогона site.yml (плей "2. SSH/OS hardening") —
+# порт меняется на secret_ssh_port из vars/secrets.yml, а вход только
+# под {{ new_user }} по ключу. Обновите ansible_port ниже вручную
+# ПОСЛЕ того как вручную проверили новый доступ (см. README, шаг 4).
+all:
+  children:
+    servers:
+      hosts:
+        server1:
+          ansible_host: 203.0.113.10  # ЗАМЕНИТЕ на реальный IP; сам inventory.yml в .gitignore
+          ansible_port: 22
+          ansible_user: root
+
+    # Ноутбук хардненится локально (это та же машина, где запускается ansible),
+    # поэтому подключение через connection=local, без SSH.
+    laptops:
+      hosts:
+        laptop1:
+          ansible_connection: local
+          ansible_python_interpreter: auto_silent

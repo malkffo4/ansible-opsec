@@ -1,0 +1,35 @@
+---
+- name: restart usbguard
+  ansible.builtin.systemd:
+    name: usbguard
+    state: restarted
+    enabled: yes
+
+- name: update grub
+  command: grub2-mkconfig -o /boot/grub2/grub.cfg
+  ignore_errors: true
+
+- name: Reload NetworkManager
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: reloaded
+
+- name: restart systemd-resolved
+  ansible.builtin.service:
+    name: systemd-resolved
+    state: restarted
+
+- name: restart falco service
+  ansible.builtin.service:
+    name: falco
+    state: restarted
+
+- name: restart bluetooth
+  ansible.builtin.systemd:
+    name: bluetooth
+    state: restarted
+
+- name: restart opensnitchd
+  ansible.builtin.systemd:
+    name: opensnitchd
+    state: restarted

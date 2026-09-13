@@ -1,0 +1,60 @@
+---
+- name: Установка и настройка DNS (DoT)
+  block:
+    - name: Install systemd-resolved (Debian/Ubuntu)
+      ansible.builtin.package:
+        name: systemd-resolved
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Configure systemd-resolved (Force Global DoT)
+      ansible.builtin.ini_file:
+        path: /etc/systemd/resolved.conf
+        section: Resolve
+        option: "{{ item.key }}"
+        value: "{{ item.value }}"
+        mode: '0644'
+      loop:
+        - { key: 'DNS', value: '9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net' }
+        - { key: 'FallbackDNS', value: '1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com' }
+        - { key: 'DNSOverTLS', value: 'yes' }
+        - { key: 'DNSSEC', value: 'yes' }
+        - { key: 'Domains', value: '~.' } # Это заставляет слать ВСЕ запросы на Global DNS
+      notify: restart systemd-resolved
+
+    - name: Force NetworkManager to respect systemd-resolved
+      ansible.builtin.ini_file:
+        path: /etc/NetworkManager/conf.d/dns.conf
+        section: main
+        option: dns
+        value: systemd-resolved
+        create: yes
+        mode: '0644'
+      when: ansible_os_family == "RedHat"
+      notify: restart networkmanager
+
+    - name: Link resolv.conf to systemd-resolved stub
+      ansible.builtin.file:
+        src: /run/systemd/resolve/stub-resolv.conf
+        dest: /etc/resolv.conf
+        state: link
+        force: yes
+
+- name: Flush DNS cache to start clean
+  ansible.builtin.command: resolvectl flush-caches
+  changed_when: false
+
+# - name: Отключение LLMNR и mDNS в systemd-resolved
+#   lineinfile:
+#     path: /etc/systemd/resolved.conf
+#     regexp: "{{ item.regexp }}"
+#     line: "{{ item.line }}"
+#     state: present
+#     create: yes        # Создаст файл, если его нет
+#     mode: '0644'
+#     owner: root
+#     group: root
+#   loop:
+#     - { regexp: '^#?LLMNR=', line: 'LLMNR=no' }
+#     - { regexp: '^#?MulticastDNS=', line: 'MulticastDNS=no' }
+#   notify: restart systemd-resolved

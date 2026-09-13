@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+
+# 1. NTS Servers (Network Time Security)
+# Используем NTS для шифрования и защиты от MITM
+server time.cloudflare.com iburst nts
+server nts.netnod.se iburst nts
+server nts.sth1.nts.netnod.se iburst nts
+
+# Требовать аутентификацию NTS для всех серверов
+authselectmode require
+
+# 2. Hardening (OpSec)
+# Полностью отключаем прослушивание порта 123. Система работает только как клиент.
+port 0
+
+# Запрещаем отвечать на любые запросы, даже если порт будет случайно открыт
+noclientlog
+logchange 0.5
+
+# 3. Laptop & Desktop Optimization
+# На ноутбуках после сна время может сильно уйти. 
+# "1.0 -1" означает: если разница > 1 сек, корректировать скачком всегда (без лимита первых попыток).
+makestep 1.0 -1
+
+# Хранение дрифта (коррекция точности кварцевого резонатора)
+driftfile {{ drift_path }}
+
+# 4. Дополнительная защита
+# Ограничиваем использование системных ресурсов
+rtcsync

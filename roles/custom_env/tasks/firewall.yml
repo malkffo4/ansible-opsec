@@ -1,0 +1,94 @@
+---
+# Открываем: текущий SSH-порт (та же переменная current_ssh_port, что
+# использует ssh-хардненинг), плюс всё, что реально слушает наружу
+# (эвристика для VPN-сервисов типа Amnezia), плюс extra_allowed_ports
+# из secrets.yml как явный, надёжный вариант.
+
+- name: Определить порты, которые сервис реально слушает наружу
+  ansible.builtin.shell: |
+    set -o pipefail
+    ss -H -tulpn 2>/dev/null | awk '{print $1, $5}' \
+      | grep -Ev '127\.0\.0\.1|::1' \
+      | awk -F'[: ]' '{print $1, $NF}' \
+      | sort -u
+  args:
+    executable: /bin/bash
+  changed_when: false
+  register: detected_listeners
+  when: "'servers' in group_names"
+
+- name: Показать, что было обнаружено (проверьте глазами!)
+  ansible.builtin.debug:
+    msg: "{{ detected_listeners.stdout_lines }}"
+  when: "'servers' in group_names"
+
+- name: Собрать итоговый список портов для открытия
+  ansible.builtin.set_fact:
+    ports_to_open: >-
+      {{
+        [{'port': current_ssh_port | int, 'proto': 'tcp'}]
+        + (extra_allowed_ports | default([]))
+      }}
+  when: "'servers' in group_names"
+
+# --- Debian/Ubuntu: ufw ---
+- name: "[ufw] Открыть порты"
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+  loop: "{{ ports_to_open }}"
+  when: ansible_os_family == 'Debian' and 'servers' in group_names
+
+- name: "[ufw] Старый SSH-порт (22) автоматически НЕ закрываем"
+  ansible.builtin.debug:
+    msg: >-
+      Порт 22 остаётся открытым до тех пор, пока вы вручную не подтвердите
+      новый доступ и не запустите плейбук с -e close_old_ssh_port=true
+      (см. README, финальный шаг очистки).
+  when: ansible_os_family == 'Debian' and 'servers' in group_names
+
+- name: "[ufw] Закрыть старый порт 22, если подтверждено вручную"
+  community.general.ufw:
+    rule: deny
+    port: "22"
+    proto: tcp
+  when:
+    - ansible_os_family == 'Debian'
+    - "'servers' in group_names"
+    - close_old_ssh_port | default(false) | bool
+    - current_ssh_port | int != 22
+
+- name: "[ufw] Разрешить форвардинг (нужно для VPN на этом сервере)"
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^DEFAULT_FORWARD_POLICY='
+    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+  when: ansible_os_family == 'Debian' and 'servers' in group_names
+  notify: reload ufw
+
+- name: "[ufw] Включить"
+  community.general.ufw:
+    state: enabled
+    policy: deny
+  when: ansible_os_family == 'Debian' and 'servers' in group_names
+
+# --- RedHat/Fedora: firewalld (в основном для laptops) ---
+- name: "[firewalld] Открыть порты"
+  ansible.posix.firewalld:
+    port: "{{ item.port }}/{{ item.proto }}"
+    permanent: yes
+    immediate: yes
+    state: enabled
+  loop: "{{ ports_to_open }}"
+  when: ansible_os_family == 'RedHat' and 'servers' in group_names
+
+- name: Предупреждение про Docker + ufw/firewalld
+  ansible.builtin.debug:
+    msg: >-
+      Если Amnezia установлена через Docker — Docker сам управляет iptables
+      для проброшенных портов и иногда конфликтует с ufw/firewalld
+      (трафик до контейнера может резаться, даже если порт "открыт").
+      После этого прогона ОБЯЗАТЕЛЬНО проверьте подключение к VPN с телефона
+      или другого устройства, не полагаясь только на "ufw status".
+  when: "'servers' in group_names"

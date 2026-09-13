@@ -1,0 +1,73 @@
+---
+- name: Create dedicated user
+  ansible.builtin.user:
+    name: _laurel
+    system: yes
+    home: /var/log/laurel
+    create_home: yes
+    shell: /sbin/nologin
+
+- name: Download and install binary
+  block:
+    - name: Download LAUREL release
+      ansible.builtin.get_url:
+        url: "https://github.com/threathunters-io/laurel/releases/download/v0.7.3/laurel-0.7.3-x86_64-glibc.tar.gz"
+        dest: /tmp/laurel.tar.gz
+        mode: '0644'
+    - name: Extract binary
+      ansible.builtin.unarchive:
+        src: /tmp/laurel.tar.gz
+        dest: /usr/local/sbin/
+        remote_src: yes
+        extra_opts: [--strip-components=0]
+        creates: /usr/local/sbin/laurel
+
+- name: Ensure config directory exists
+  ansible.builtin.file:
+    path: /etc/laurel
+    state: directory
+    mode: '0750'
+
+- name: Deploy configuration
+  ansible.builtin.copy:
+    dest: /etc/laurel/config.toml
+    content: |
+      directory = "/var/log/laurel"
+      user = "_laurel"
+      [auditlog]
+      file = "laurel.log"
+      size = 10
+      generations = 3
+      [outputs.socket]
+      path = "/run/nexus.sock"
+      type = "unixstream"
+    mode: '0640'
+  notify: Restart auditd
+
+- name: Register as auditd plugin
+  ansible.builtin.copy:
+    dest: "{{ '/etc/audit/plugins.d/laurel.conf' if ansible_distribution_major_version|int >= 3 else '/etc/audisp/plugins.d/laurel.conf' }}"
+    content: |
+      active = yes
+      direction = out
+      path = /usr/local/sbin/laurel
+      type = always
+      args = --config /etc/laurel/config.toml
+      format = string
+    mode: '0640'
+  notify: Restart auditd
+
+- name: Handle SELinux (For Laptops/RedHat)
+  when: ansible_os_family == "RedHat"
+  block:
+    - name: Apply restorecon to LAUREL paths
+      command: "restorecon -v -R -F {{ item }}"
+      loop:
+        - /usr/local/sbin/laurel
+        - /etc/laurel
+        - /var/log/laurel
+      register: restorecon_res
+      failed_when: 
+        - restorecon_res.rc != 0 
+        - "'No such file or directory' not in restorecon_res.stderr"
+      ignore_errors: true

@@ -1,0 +1,17 @@
+---
+- import_tasks: disabling_the_unnecessary.yml
+- import_tasks: flatpak.yml
+- import_tasks: grub.yml
+- import_tasks: mac_randomize.yml
+- import_tasks: bluetooth.yml
+- import_tasks: sysctl.yml
+- import_tasks: usbguard.yml
+- import_tasks: gnome.yml
+- import_tasks: opensnitch.yml
+
+- import_tasks: selinux.yml
+  when: ansible_os_family == 'RedHat'
+
+# - import_tasks: hardened_malloc.yml
+#   vars:
+#     service_name: "nexus"

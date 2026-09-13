@@ -1,0 +1,91 @@
+---
+# Этот файл выполняется ПЕРВЫМ, отдельным плеем, пока мы ещё подключены
+# по-старому (root, старый порт). Он НИЧЕГО не меняет в SSH/firewall —
+# только создаёт админ-юзера и переносит в него ваш существующий ключ.
+# Если что-то пойдёт не так на этом шаге — старый доступ (root) остаётся
+# рабочим, ничего не сломано.
+
+- name: Определить группу sudo для дистрибутива
+  ansible.builtin.set_fact:
+    sudo_group: "{{ 'sudo' if ansible_os_family == 'Debian' else 'wheel' }}"
+
+- name: Проверить, что у root есть authorized_keys (иначе переносить нечего)
+  ansible.builtin.stat:
+    path: /root/.ssh/authorized_keys
+  register: root_authorized_keys
+
+- name: СТОП — у root нет authorized_keys, перенос ключа невозможен
+  ansible.builtin.fail:
+    msg: >
+      /root/.ssh/authorized_keys не найден или пуст. Значит переносить
+      в {{ new_user }} нечего, и после отключения входа под root
+      вы гарантированно потеряете доступ. Добавьте свой публичный ключ
+      root'у (ssh-copy-id) и повторите запуск.
+  when: not root_authorized_keys.stat.exists or root_authorized_keys.stat.size == 0
+
+- name: Создать админ-пользователя
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    groups: "{{ sudo_group }}"
+    shell: /bin/bash
+    password: "!"          # пароль явно заблокирован — вход только по ключу
+    create_home: yes
+
+- name: Создать ~/.ssh для нового пользователя
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}/.ssh"
+    state: directory
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0700'
+
+- name: Скопировать authorized_keys root -> {{ new_user }}
+  ansible.builtin.copy:
+    src: /root/.ssh/authorized_keys
+    dest: "/home/{{ new_user }}/.ssh/authorized_keys"
+    remote_src: yes
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0600'
+
+- name: Разрешить группе sudo/wheel выполнять команды без пароля
+  # Для одиночного VPN-сервера, которым управляет только один человек,
+  # это разумный компромисс: без этого каждый ansible-run будет просить
+  # sudo-пароль, а пароля у юзера в принципе нет (вход только по ключу).
+  # Если вам важнее защита от локального повышения привилегий (например,
+  # сервер многопользовательский) — уберите этот таск и включите
+  # os_security_sudo_require_password с обычным паролем у юзера.
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/90-{{ new_user }}-nopasswd
+    line: "%{{ sudo_group }} ALL=(ALL) NOPASSWD:ALL"
+    create: yes
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
+- name: Сгенерировать пароль root ТОЛЬКО для recovery-консоли провайдера
+  no_log: true
+  block:
+    - name: Сгенерировать пароль
+      ansible.builtin.set_fact:
+        gen_root_console_pass: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=24') }}"
+
+    - name: Применить пароль к root
+      # Это НЕ включает вход по паролю через SSH (он будет запрещён
+      # отдельно ролью ssh_hardening) — пароль нужен только если придётся
+      # заходить через web/VNC консоль хостинг-провайдера (rescue mode
+      # и т.п.), когда SSH недоступен в принципе.
+      ansible.builtin.user:
+        name: root
+        password: "{{ gen_root_console_pass | password_hash('sha512') }}"
+
+    - name: Сохранить пароль локально (в gitignore, не коммитится)
+      become: false
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: |
+          Host: {{ inventory_hostname }} ({{ ansible_host | default('no_ip') }})
+          Admin user (SSH, key-only): {{ new_user }}
+          Root password (ТОЛЬКО для recovery-консоли провайдера, не для SSH): {{ gen_root_console_pass }}
+          Date: {{ ansible_date_time.iso8601 }}
+        dest: "./vars/creds_{{ inventory_hostname }}.txt"
+        mode: '0600'

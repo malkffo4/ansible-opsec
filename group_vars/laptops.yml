@@ -1,0 +1,49 @@
+---
+# 1. Возвращаем доступ к процессам (для Polkit/Gnome)
+os_security_proc_hidepid: 0
+hidepid_option: "0"
+
+# 2. ЗАПРЕЩАЕМ роли снимать SUID-биты (это ломает запуск терминала)
+os_security_suid_sgid_enforce: false
+os_security_suid_sgid_blacklist: []
+
+# 3. Снимаем блокировку исполнения с системных путей
+# os_security_run_noexec: false
+# os_security_dev_shm_noexec: false
+# os_security_tmp_noexec: false
+
+# 4. Разрешаем пользователю логиниться (иначе Polkit его заблокирует)
+os_security_users_allow: ["user", "gdm", "polkitd", "systemd-network"]
+
+os_fapolicyd_enabled: false       # Отключаем блокировщик софта (он в devsec), чтобы можно было запускать скомпилированные payload'ы
+os_fapolicyd_installed: false        # devsec-реализация fapolicyd слишком агрессивна для десктопа. 
+                                     # Федора по умолчанию использует SELinux в режиме Enforcing — для хоста этого более чем достаточно.
+
+# Настройки SSH для локальной машины (разрешаем вход по ключу)
+# (раньше здесь были опечатки в именах переменных devsec-роли, из-за чего
+# они молча игнорировались и применялись только дефолты — по факту дефолты
+# и так совпадали с намерением, но явные имена надёжнее)
+ssh_pubkey_authentication: true
+ssh_server_password_login: false
+
+# Исправляем монтирование (убираем noexec с тех мест, где он мешает GUI)
+os_security_shm_noexec: false
+os_security_dev_noexec: false
+# os_auth_allow_homeless: true
+
+# Жизнеобеспечение виртуализации (KVM / virt-manager)
+os_ipv4_forward: true                # КРИТИЧНО ВАЖНО: без этого виртуалки не получат интернет (отвалится NAT на интерфейсе virbr0)
+
+# 3. Сетевой харденинг (Хост должен быть "невидимкой")
+sysctl_overwrite:
+  net.ipv4.ip_forward: 1 
+  
+  # Отключаем IPv6, чтобы хост случайно не слил локацию/адрес при подключении к публичному Wi-Fi
+  net.ipv6.conf.all.disable_ipv6: 1
+  net.ipv6.conf.default.disable_ipv6: 1
+  
+  # Полный игнор пингов — хост не должен отвечать на сканирование в локальной сети
+  net.ipv4.icmp_echo_ignore_all: 1
+  
+  # Защита от спуфинга
+  net.ipv4.conf.all.rp_filter: 1

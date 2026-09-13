@@ -1,0 +1,60 @@
+---
+- name: (Debian/Ubuntu) Force immediate time sync via timesyncd
+  become: true
+  block:
+    - name: (Debian/Ubuntu) Ensure systemd-timesyncd is running (if exists)
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: started
+        enabled: yes
+      ignore_errors: true
+      failed_when: false
+      register: timesyncd_status
+
+    - name: Skip timesyncd if not found
+      ansible.builtin.debug:
+        msg: "systemd-timesyncd not found, relying on chrony"
+      when: timesyncd_status.failed and "Could not find" in timesyncd_status.msg
+
+    - name: Force time synchronization
+      ansible.builtin.command: timedatectl set-ntp false
+    - ansible.builtin.command: timedatectl set-ntp true
+    
+    - name: Wait for clock to synchronize
+      ansible.builtin.shell: timedatectl show --property=NTPSynchronized --value
+      register: wait_ntp
+      until: wait_ntp.stdout == "yes"
+      retries: 12
+      delay: 5
+  when: ansible_os_family == "Debian"
+
+- name: (Debian/Ubuntu) Now update apt cache safely
+  ansible.builtin.apt:
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Detect OS-specific settings
+  set_fact:
+    chrony_service: "{{ 'chrony' if ansible_os_family == 'Debian' else 'chronyd' }}"
+    chrony_conf: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
+    drift_path: "{{ '/var/lib/chrony/chrony.drift' if ansible_os_family == 'Debian' else '/var/lib/chrony/drift' }}"
+
+- name: Install chrony package
+  ansible.builtin.package:
+    name: chrony
+    state: present
+
+- name: Apply hardened NTS configuration
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: "{{ chrony_conf }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart chrony service
+
+- name: Ensure chrony is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ chrony_service }}"
+    enabled: true
+    state: started

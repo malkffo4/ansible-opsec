@@ -1,0 +1,14 @@
+---
+- name: Отключение опасных OPSEC-сервисов (Avahi, CUPS)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - avahi-daemon.service
+    - avahi-daemon.socket
+    - cups.service
+    - cups.socket
+    - cups-browsed.service
+  ignore_errors: true

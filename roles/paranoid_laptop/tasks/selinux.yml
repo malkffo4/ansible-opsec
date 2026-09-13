@@ -1,0 +1,19 @@
+---
+- name: Убедиться, что SELinux реально в enforcing (а не просто установлен)
+  ansible.posix.selinux:
+    policy: targeted
+    state: enforcing
+
+- name: (Monitor) Настройка SELinux Troubleshooter
+  ansible.builtin.dnf:
+    name: 
+      - setroubleshoot-server
+      - setools-console
+    state: present
+
+- name: (Monitor) Включение службы анализа алертов SELinux
+  ansible.builtin.systemd:
+    name: setroubleshootd
+    enabled: true
+    state: started
+  when: ansible_os_family == "RedHat"

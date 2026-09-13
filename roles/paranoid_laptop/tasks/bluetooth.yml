@@ -1,0 +1,32 @@
+---
+- name: Hardening Bluetooth config
+  ansible.builtin.copy:
+    dest: /etc/bluetooth/main.conf
+    content: |
+      [General]
+      # Запрещаем старые методы спаривания
+      JustWorksRepairing = never
+      FastConnectable = false
+      # Скрываем устройство
+      DiscoverableTimeout = 0
+      PairableTimeout = 0
+      
+      [Policy]
+      AutoEnable=true
+  notify: restart bluetooth
+
+- name: Disable Discoverable and Pairable via btmgmt
+  ansible.builtin.command: btmgmt {{ item }}
+  loop:
+    - "discov off"
+    - "pairable off"
+  ignore_errors: true # Если BT адаптер занят
+
+# РАСКОММЕНТИРУЙ БЛОК НИЖЕ, ЕСЛИ РЕШИШЬ ОТКАЗАТЬСЯ ОТ БЛЮТУЗ-МЫШКИ (Для тру OPSEC)
+# - name: Остановка Bluetooth (аппаратная и программная)
+#   systemd:
+#     name: bluetooth.service
+#     state: stopped
+#     enabled: no
+#     masked: yes
+#   ignore_errors: true

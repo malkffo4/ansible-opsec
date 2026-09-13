@@ -1,0 +1,41 @@
+---
+- name: (GNOME) Харденинг настроек рабочего стола
+  become: true
+  become_user: "{{ new_user }}"
+  environment:
+    DBUS_SESSION_BUS_ADDRESS: "autolaunch:"
+  community.general.dconf:
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    # 1. Блокировка экрана
+    - { key: "/org/gnome/desktop/screensaver/lock-enabled", value: "true" }
+    - { key: "/org/gnome/desktop/screensaver/ubuntu-lock-on-suspend", value: "true" }
+    - { key: "/org/gnome/desktop/notifications/show-in-lock-screen", value: "false" } # Скрыть уведомления на локскрине
+
+    # 2. Приватность и Метаданные
+    - { key: "/org/gnome/desktop/privacy/remember-recent-files", value: "false" } # Не помнить историю файлов
+    - { key: "/org/gnome/desktop/privacy/remember-app-usage", value: "false" }    # Не следить за запуском софта
+    - { key: "/org/gnome/desktop/privacy/remove-old-temp-files", value: "true" } # Автоочистка временных файлов
+    - { key: "/org/gnome/desktop/privacy/remove-old-trash-files", value: "true" }
+    - { key: "/org/gnome/desktop/privacy/old-files-age", value: "uint32 7" }     # Хранить не более 7 дней
+
+    # 3. Защита USB (интеграция с USBGuard в GNOME)
+    # Запрещает подключение новых USB-устройств, пока экран заблокирован
+    - { key: "/org/gnome/desktop/privacy/usb-protection", value: "true" }
+    - { key: "/org/gnome/desktop/privacy/usb-protection-level", value: "'always'" }
+
+    # 4. Отключение поиска в метаданных файлов
+    # Чтобы через поисковую строку нельзя было случайно "засветить" содержимое файлов
+    - { key: "/org/gnome/desktop/search-providers/disable-external", value: "true" }
+
+- name: (OPSEC) Полное отключение отчетов об ошибках и телеметрии
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - abrtd
+    - abrt-xorg
+    - abrt-journal-core
+  ignore_errors: true # На случай, если они уже удалены

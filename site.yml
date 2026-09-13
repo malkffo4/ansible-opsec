@@ -1,0 +1,80 @@
+---
+# ПОРЯДОК ВАЖЕН. Каждый плей спроектирован так, чтобы если он не доехал
+# до конца — старый доступ (root, старый порт) остаётся рабочим.
+#
+# 0. bootstrap_admin — создаёт юзера и переносит SSH-ключ. Ничего в SSH/
+#    firewall не меняет. Если тут ошибка — вы всё ещё root по-старому.
+# 1. ssh_and_os_hardening — открывает новый порт+VPN-порты, ставит
+#    os_hardening, ДЕЛАЕТ ПАУЗУ и просит вас вручную проверить новый
+#    доступ в отдельном терминале, и только после Enter — накатывает
+#    ssh_hardening (который отключает root и старый порт).
+# 2. custom_env — остальная среда (DNS, chrony, fail2ban, zram, firewall
+#    ещё раз идемпотентно).
+# 3. paranoid_laptop — только для группы laptops (локально, без SSH).
+
+- name: "0. Bootstrap: создать админ-юзера и перенести SSH-ключ"
+  hosts: servers
+  become: yes
+  gather_facts: yes
+  tasks:
+    - import_tasks: roles/custom_env/tasks/bootstrap_admin.yml
+
+- name: "1. Харденинг SSH и ОС (с ручным подтверждением перед отключением root)"
+  hosts: servers
+  become: yes
+  vars:
+    current_ssh_port: "{{ ansible_port | default(22) }}"
+  pre_tasks:
+    - name: Открыть новый SSH-порт и VPN-порты в файрволе ДО переключения sshd
+      import_tasks: roles/custom_env/tasks/firewall.yml
+
+  roles:
+    - devsec.hardening.os_hardening
+
+  tasks:
+    - name: "!!! ОСТАНОВКА: проверьте доступ под новым юзером, прежде чем продолжить !!!"
+      ansible.builtin.pause:
+        prompt: |
+
+
+            Firewall и os_hardening применены. root и старый порт {{ current_ssh_port }}
+            ПОКА ЕЩЁ работают — ничего не сломано.
+
+            Откройте ВТОРОЙ терминал (этот не закрывайте!) и проверьте:
+
+              ssh -p {{ current_ssh_port }} {{ new_user }}@{{ ansible_host }} -i ~/.ssh/ваш_ключ
+
+            Если зашли и sudo -l работает без пароля — возвращайтесь сюда и
+            нажмите Enter, чтобы продолжить (после этого root и порт
+            {{ current_ssh_port }} будут отключены).
+
+            Если НЕ зашли — жмите Ctrl+C прямо сейчас. Ничего необратимого
+            ещё не произошло, старый доступ жив.
+
+      when: skip_confirmation is not defined or not (skip_confirmation | bool)
+
+  post_tasks:
+    - name: Применить ssh_hardening (отключает root и старый порт)
+      ansible.builtin.include_role:
+        name: devsec.hardening.ssh_hardening
+
+    - name: Переключить ansible на нового юзера и новый порт
+      ansible.builtin.set_fact:
+        ansible_user: "{{ new_user }}"
+        ansible_port: "{{ secret_ssh_port | default(22) }}"
+        ansible_become_pass: ""
+
+    - name: Сбросить соединение
+      ansible.builtin.meta: reset_connection
+
+- name: "2. Развертывание среды (DNS-over-TLS, chrony, zram; серверные вещи вроде fail2ban отфильтрованы внутри роли по group_names)"
+  hosts: all
+  become: yes
+  roles:
+    - custom_env
+
+- name: "3. Параноидальный харденинг ноутбука (локально, без SSH)"
+  hosts: laptops
+  become: yes
+  roles:
+    - paranoid_laptop

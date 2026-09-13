@@ -1,0 +1,33 @@
+---
+- name: Установка пакетов для харденинга
+  ansible.builtin.package:
+    name:
+      - build-essential
+      - libseccomp
+    state: present
+
+- name: Клонирование hardened_malloc
+  ansible.builtin.git:
+    repo: https://github.com/GrapheneOS/hardened_malloc.git
+    dest: /opt/hardened_malloc
+    version: main
+
+- name: Сборка hardened_malloc
+  community.general.make:
+    chdir: /opt/hardened_malloc
+    target: all
+  args:
+    creates: /opt/hardened_malloc/out/libhardened_malloc.so
+
+- name: Харденинг конкретного сервиса через hardened_malloc
+  ansible.builtin.systemd:
+    name: "{{ service_name }}"
+    state: restarted
+    daemon_reload: true
+  register: service_override
+
+- name: Интеграция hardened_malloc в systemd сервис
+  ansible.builtin.lineinfile:
+    path: "/etc/systemd/system/{{ service_name }}.service.d/override.conf"
+    line: "Environment=\"LD_PRELOAD=/opt/hardened_malloc/out/libhardened_malloc.so\""
+    create: true

@@ -1,0 +1,24 @@
+---
+- name: Determine system-specific variables
+  ansible.builtin.set_fact:
+    sudo_group: "{{ 'sudo' if ansible_os_family == 'Debian' else 'wheel' }}"
+    ssh_service_name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+
+- import_tasks: chrony.yml
+- import_tasks: dns.yml
+
+- import_tasks: firewall.yml
+
+- name: fail2ban
+  ansible.builtin.include_tasks: fail2ban.yml
+  when: "'servers' in group_names"
+
+- import_tasks: zram.yml
+
+# Alerting
+# - import_tasks: nexus.yml
+# - import_tasks: falco.yml
+# - import_tasks: auditd.yml
+# - import_tasks: laurel.yml
+
+- import_tasks: logless.yml

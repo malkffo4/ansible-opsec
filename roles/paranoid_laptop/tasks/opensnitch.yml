@@ -1,0 +1,46 @@
+---
+# OpenSnitch — приложенческий firewall с GUI-подтверждением: показывает
+# КАЖДОЕ новое исходящее соединение (процесс, порт, адрес) и спрашивает
+# разрешить/запретить. Это и есть "мониторинг портов" на уровне процессов,
+# которого не даёт обычный firewalld/ufw (они фильтруют по портам, а не
+# по программе). Ближе всего к философии Tails: ничего не звонит наружу
+# без вашего ведома.
+#
+# ВАЖНО: первые дни будет спамить попапами — это нормально, разрешения
+# запоминаются per-binary. Если это неприемлемо — закомментируйте импорт
+# в main.yml, но тогда "мониторинг портов" придётся закрывать чем-то ещё.
+
+- name: Установить репозиторий OpenSnitch (COPR)
+  community.general.copr:
+    name: gcarrillo/opensnitch
+    state: enabled
+  when: ansible_os_family == "RedHat"
+
+- name: Установить opensnitch + GUI
+  ansible.builtin.dnf:
+    name:
+      - opensnitch
+      - python3-opensnitch-ui
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Включить и запустить демон opensnitch
+  ansible.builtin.systemd:
+    name: opensnitchd
+    enabled: true
+    state: started
+
+- name: Задать firewall по умолчанию — спрашивать на каждое новое соединение
+  ansible.builtin.copy:
+    dest: /etc/opensnitchd/default-config.json
+    content: |
+      {
+        "DefaultAction": "deny",
+        "DefaultDuration": "until restart",
+        "InterceptUnknown": true,
+        "ProcMonitorMethod": "ebpf"
+      }
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart opensnitchd

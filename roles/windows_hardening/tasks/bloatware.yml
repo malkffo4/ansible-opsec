@@ -1,0 +1,27 @@
+---
+- name: Disable Cortana via Registry
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search
+    name: AllowCortana
+    data: 0
+    type: dword
+    state: present
+
+- name: Prevent OneDrive from syncing until user chooses to
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive
+    name: DisableFileSyncNGSC
+    data: 1
+    type: dword
+    state: present
+
+# Optionally uninstalling UWP bloatware is complex via ansible without running scripts,
+# so we will use a basic PowerShell command to remove some common ones.
+- name: Remove common UWP bloatware apps
+  ansible.windows.win_powershell:
+    script: |
+      $apps = @("Microsoft.BingWeather", "Microsoft.ZuneVideo", "Microsoft.WindowsMaps", "Microsoft.XboxApp")
+      foreach ($app in $apps) {
+        Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers
+      }
+  ignore_errors: yes

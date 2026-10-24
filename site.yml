@@ -116,3 +116,8 @@
   become: yes
   roles:
     - paranoid_laptop
+
+- name: "4. Харденинг Windows (Telemetry, Bloatware, Security, Network)"
+  hosts: windows
+  roles:
+    - windows_hardening
